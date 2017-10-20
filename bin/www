@@ -1,0 +1,222 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('chatroom:server');
+var http = require('http');
+
+
+var mysql=require('mysql');
+
+option={
+  host     : 'localhost',
+  user     : 'root',
+  password : 'root',
+  database : 'test'
+};
+var conn=mysql.createConnection(option);
+conn.connect();
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+      ? 'Pipe ' + port
+      : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+      ? 'pipe ' + addr
+      : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
+
+var online=[];
+
+var io = require('socket.io')(server);
+io.on('connection', function(client){
+  console.log("client==>");
+  //console.log(client);
+  //console.log(client.handshake.headers.referer);
+  var url=client.handshake.headers.referer;
+  var last=url.split("/");
+  var room=last[last.length-1];
+  console.log(room);
+
+  //上线
+  client.on("hello",function(data){
+
+    //console.log('data.userinfo==>');
+    //console.log(data.userinfo);
+
+    //设置socket唯一id标识
+    client.join(data.userinfo.id);
+
+    //设置在线
+    online.push(data.userinfo.id);
+    console.log("online==>");
+    console.log(online);
+
+    //获取好友id
+    var friendsid=data.friendsid;
+
+   //向在线好友发送在线提示
+    for(var i=0;i<friendsid.length;i++){
+      var friendid=friendsid[i];
+      //console.log('friendid==>');
+      //console.log(friendid);
+      //console.log(online.indexOf(friendid));
+      if(online.indexOf(friendid)>=0){
+        //向在线好友发送自己上线消息
+        client.to(friendid).emit("hello",{"friendid":data.userinfo.id});
+        //向自己发送在线好友消息
+        client.emit("hello",{"friendid":friendid});
+      }
+
+    }
+
+  });
+
+
+  client.on("room",function(data){
+    console.log(data.room);
+    client.join(data.room);
+  });
+
+
+  //发送群消息
+  client.on('rnews', function (data) {
+    console.log(data);
+    var roomuser=data.roomuser.split(",");
+
+    var result={"userinfo":data.userinfo,"news":data.news,"room":data.room};
+
+    for(var i=0;i<roomuser.length;i++){
+      var friendid=roomuser[i];
+      //在线发送消息
+      if(online.indexOf(friendid)>=0){
+        client.to(friendid).emit("rnews",{"data":result});
+      }
+      //不在线保存到数据库，标记未读
+      else{
+        var date=new Date();
+        var sql="insert into msg(msg,roomid,userid,user,date,receiveid) values(?,?,?,?,?,?)";
+        conn.query(sql,[data.news,data.room,result.userinfo.Id,result.userinfo.user,date,friendid],function(error, results ){
+          if(error){
+            console.log("error");
+          }
+          if(results!=null) {
+            console.log(results.affectedRows);
+          }
+        });
+
+      }
+    }
+
+  });
+
+  client.on('fnews', function (data) {
+    console.log(data);
+
+    //接受者id
+    var fid=data.fid.split("f")[1];
+    console.log(fid);
+
+    var result={"userinfo":data.userinfo,"news":data.news,"receiveid":fid};
+
+    var friendid=Number(fid);
+    //在线发送消息
+
+    console.log(online.indexOf(friendid));
+    console.log(online);
+    if(online.indexOf(friendid)>=0){
+      client.to(friendid).emit("fnews",{"result":result});
+    }
+    //不在线保存到数据库，标记未读
+    else{
+      date=new Date();
+      sql="insert into msg(msg,userid,user,date,receiveid) values(?,?,?,?,?)";
+      conn.query(sql,[data.news,result.userinfo.Id,result.userinfo.user,date,friendid],function(error, results ){
+        if(error){
+          console.log("error");
+        }
+        if(results!=null) {
+          console.log(results.affectedRows);
+        }
+      });
+
+    }
+
+
+  });
+});

@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><%=user%></title>
+    <link href="/bootstrap/css/bootstrap.css" rel="stylesheet">
+    <link href="/assets/fontawesome/font-awesome.css" rel="stylesheet">
+    <script src="/js/jquery-2.0.3.min.js"></script>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        var r='<%- JSON.stringify(rooms)%>';
+        r=JSON.parse(r);
+        var f='<%- JSON.stringify(friends) %>';
+        f= JSON.parse(f);
+        console.log(r);
+        console.log(f);
+
+
+
+        //获取好友信息
+        var friendsid=[];
+        var friendsname=[];
+        for(var i=0;i<= f.length-1;i++){
+            console.log(f[i]);
+            friendsid.push(f[i].Id);
+            friendsname.push(f[i].name);
+            console.log("friendsid==>");
+            console.log(friendsid);
+        }
+
+        //获取个人信息
+        var user='<%=user%>';
+        var id='<%=id%>';
+        //保存用户信息
+        var userinfo={};
+        userinfo.user=user;
+        userinfo.id=Number(id);
+        console.log(userinfo);
+
+        window.sessionStorage.setItem("user",user);
+
+        //记录房间信息id
+        var rid='';
+
+        var fid='';
+
+        var current='';
+
+
+
+//        var onlineUser=window.localStorage.getItem('onlineUser');
+//        if(onlineUser==null){
+//            onlineUser=[];
+//            onlineUser.push(user);
+//            window.localStorage.setItem('onlineUser',onlineUser);
+//
+//        }else{
+//            console.log(typeof(onlineUser));
+//            onlineUser=onlineUser.split(",");
+//            console.log(onlineUser);
+//            if(onlineUser.toString().indexOf(user)<0){
+//                onlineUser.push(user);
+//                window.localStorage.setItem('onlineUser',onlineUser);
+//            }
+//        }
+
+
+        $(function () {
+
+//            $.ajax({
+//                type:"get",
+//                cache:false,
+//                url:"msg",
+//                data:{
+//                    'msg':msg,
+//                    'roomid':room
+//                },
+//                success:function(result){
+//                    console.log(result);
+//
+//
+//
+//                },
+//                error:function(xhr){
+//                    alert("error");
+//                }
+//            });
+
+            var socket = io();
+
+//            var user=window.sessionStorage.getItem("user");
+
+            $("#user").html(user);
+            var $msgcontent=$("#messages");
+//           $("#room").html(room);
+//            var message=window.localStorage.getItem(room);
+//            $msgcontent.html(message);
+
+
+            //  socket.emit("room",{room:room,user:user});
+
+            //发送在线提醒
+            socket.emit("hello",{userinfo:userinfo,"friendsid":friendsid});
+
+            socket.on('hello', function (data) {
+//                console.log(data.hello);
+//                $("#user").css("color","red");
+                var friendid=data.friendid;
+                console.log('hellofriendid===>');
+                console.log(friendid);
+                $("#f"+friendid).css("color","red");
+
+            });
+
+            //接收消息
+            socket.on('rnews', function (data) {
+                console.log(data);
+
+                if(rid==data.room){
+                    $msgcontent.append("<li><span class='user'>"+data.userinfo.user+":</span>"+data.news+"\n"+"</li>");
+
+                    var message=$msgcontent.html();
+
+                    var roommsg=user+rid;
+                    window.localStorage.setItem(roommsg,message);
+                }
+                else{
+                    var noread= $("#r"+data.room+" span").html();
+                    noread=noread+1;
+                    $("#r"+data.room+" span").html(noread);
+
+                }
+
+
+            });
+
+
+            //接收消息
+            socket.on('fnews', function (data) {
+                console.log("data==>");
+                console.log(data);
+                data=data.result;
+                var sendid=data.userinfo.id;
+                sendid="f"+sendid;
+                if(fid==sendid){
+                    $msgcontent.append("<li><span class='user'>"+data.userinfo.user+":</span>"+data.news+"\n"+"</li>");
+
+                    var message=$msgcontent.html();
+
+                    var friendmsg =user + fid;
+                    window.localStorage.setItem(friendmsg,message);
+                }
+                else{
+                    var noread=$("#"+sendid).next().html();
+                    nr=Number(noread);
+                    if(noread=='')
+                    {
+                        nr=0;
+                    }
+                    nr=nr+1;
+                    $("#"+sendid).next().html(nr);
+
+                    var friendmsg =user + fid;
+                    message=message+"<li><span class='user'>"+data.userinfo.user+":</span>"+data.news+"\n"+"</li>";
+                    window.localStorage.setItem(friendmsg,message);
+                }
+
+
+            });
+
+            //发送消息
+            $("form").submit(function(){
+                var data=$("#msg").val();
+                $msgcontent.append("<li class='self'><span class='user'>"+user+":</span>"+data+"</li>");
+                var message=$msgcontent.html();
+
+                //判断当前所在聊天对象，如果是聊天室
+                if(current=="room"){
+                    var roommsg=user+rid;
+                     window.localStorage.setItem(roommsg,message);
+
+                    //获取聊天室好友id
+                    var ru="rf"+user+rid;
+                    var roomuser= window.localStorage.getItem(ru);
+                    socket.emit('rnews', {'news':data,'userinfo':userinfo,'room':room,"roomuser":roomuser});
+//                    asncy(data,room);
+                    return false;
+                }
+                //如果是个人
+                else{
+
+                    var friendmsg =user + fid;
+                    window.localStorage.setItem(friendmsg,message);
+
+                    //发送消息
+                    socket.emit('fnews', {'news':data,'userinfo':userinfo,'fid':fid});
+                    //  asncy(data,room);
+                    return false;
+                }
+
+            });
+
+            //聊天室切换
+            $(".room").click(function(){
+                $("dd a").css("color","black");
+                $(this).css("color","red");
+
+                //设置房间聊天记录
+                rid=$(this).attr("id");
+                current="room";
+                console.log(rid);
+//                socket.emit("room",{"room":room});
+                var roommsg=user+rid;
+                console.log(roommsg);
+                var message=window.localStorage.getItem(roommsg);
+                if(message==null){
+                    window.localStorage.setItem(roommsg,'');
+                    $msgcontent.html("");
+                    return;
+                }
+                $msgcontent.html(message);
+
+                //获取或设置房间用户
+                var roomuser="rf"+user+rid;
+
+                if(window.localStorage.getItem(roomuser)==null){
+                    $.ajax({
+                        type:"get",
+                        cache:false,
+                        url:"roomuser",
+                        data:{
+                            'roomid':rid
+                        },
+                        success:function(result){
+                            console.log(result);
+                            var roomuser="rf"+user+rid;
+                            window.localStorage.setItem(roomuser,result);
+
+                        },
+                        error:function(xhr){
+                            alert("error");
+                        }
+                    })
+                }
+
+
+            });
+
+
+            $(".friend").click(function() {
+                $("dd a").css("color", "black");
+                $(this).css("color", "red");
+
+                //好友id
+                fid = $(this).attr("id");
+                current = "friend";
+                // console.log(fid);
+//                socket.emit("room",{"room":room});
+
+                $("#"+fid).next().html('');
+                //获取或设置好友
+                var friendmsg =user + fid;
+                if (window.localStorage.getItem(friendmsg) == null) {
+                    window.localStorage.setItem(friendmsg, '');
+                }
+                else {
+
+                    var message = window.localStorage.getItem(friendmsg);
+                    $msgcontent.html(message);
+                }
+
+            })
+
+        });
+
+        function asncy(msg,room){
+            $.ajax({
+                type:"get",
+                cache:false,
+                url:"msg",
+                data:{
+                    'msg':msg,
+                    'roomid':room
+                },
+                success:function(result){
+                    console.log(result);
+
+
+
+                },
+                error:function(xhr){
+                    alert("error");
+                }
+            })
+        }
+
+    </script>
+
+    <style>
+
+        html,body{
+            height:100%;
+            width:100%;
+        }
+
+
+
+        .container{
+            width:100%;
+            height:100%;
+            background-color: #e38d13;
+        }
+        .top{
+            position: fixed;
+            top:0px;
+            left:0px;
+            width:100%;
+            height:50px;
+            z-index: 1000;
+            background-color: #008cee;
+        }
+        .left{
+            position: fixed;
+            top:50px;
+            left:0px;
+            width:300px;
+            height:calc(100% - 50px);
+            background-color: #ecf1f3;
+        }
+        .right{
+            position: fixed;
+            top:50px;
+            left:300px;
+            width:calc(100% - 300px);
+            height:calc(100% - 50px);
+            background-color: #f4f4f4;
+        }
+        .msg{
+            position: absolute;
+            bottom:0px;
+
+        }
+        form { background: #000; padding:3px 3px; position: fixed; bottom: 0; width: 100%; }
+        form input { border: 0; padding: 10px; width: calc(100% - 103px); }
+        input:focus{
+            outline: 0;
+        }
+        form button { width: 100px; background: rgb(130, 224, 255); border: none; padding: 10px;margin:0px 0px 0px 3px;}
+        #messages { list-style-type: none; margin: 10px; padding: 0;font-size:20px; }
+        #messages li { padding: 5px 10px;margin:5px; }
+        #messages li:nth-child(odd) { background: #eee; }
+        .self{
+            text-align: right;
+            margin-right:20px;
+        }
+        .user{
+            color:red;
+        }
+        .group{
+            padding:20px 20px;
+        }
+        .group dt{
+            font-size:25px;
+            font-family:monospace;
+        }
+        .group dd{
+            font-size:20px;
+            line-height: 50px;
+            margin-left:15px;
+        }
+        .title{
+            font-size:20px;
+            color:#fff;
+            line-height:50px;
+            margin-left:20px;
+        }
+        #user{
+
+            color:red;
+        }
+        #room{
+
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="top">
+        <div class="title">
+            <span id="user"></span>:
+            <span id="room"></span>
+        </div>
+    </div>
+    <div class="left">
+        <div class="group">
+            <dl>
+                <dt>
+                    聊天室
+                </dt>
+
+                <%for(var i=0;i<=rooms.length-1;i++){%>
+                <dd><a class="room" id="r<%=rooms[i].Id%>" name="<%=rooms[i].name%>"><%=rooms[i].name%></a><span>3</span></dd>
+                <%}%>
+                <%for(var i=0;i<=friends.length-1;i++){%>
+                <dd><a class="friend" id="f<%=friends[i].Id%>" name="<%=friends[i].name%>"><%=friends[i].name%></a><span>4</span></dd>
+                <%}%>
+            </dl>
+        </div>
+    </div>
+    <div class="right">
+        <ul id="messages"></ul>
+        <form class="msg" role="form">
+            <input id="name" value="sdh" style="display:none">
+            <input id="msg"  autocomplete="off" /><button type="submit">Send</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>
